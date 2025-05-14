@@ -4,17 +4,22 @@ import com.rbs.bdd.generated.ValidateArrangementForPaymentRequest;
 import jakarta.xml.bind.JAXBContext;
 import jakarta.xml.bind.JAXBElement;
 import jakarta.xml.bind.Unmarshaller;
-import jakarta.xml.soap.MessageFactory;
-import jakarta.xml.soap.SOAPBody;
-import jakarta.xml.soap.SOAPMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ws.WebServiceMessage;
 import org.springframework.ws.soap.saaj.SaajSoapMessage;
 
-import javax.xml.namespace.QName;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.soap.MessageFactory;
+import javax.xml.soap.SOAPBody;
+import javax.xml.soap.SOAPMessage;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathFactory;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import org.w3c.dom.Node;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -23,46 +28,54 @@ class AccountValidationServiceTest {
     private AccountValidationService accountValidationService;
 
     @BeforeEach
-    void setUp() {
+    void setup() {
         accountValidationService = new AccountValidationService();
     }
 
     @Test
     void testValidateSchemaAndBusinessLogicFromSoapEnvelope() throws Exception {
-        // Step 1: Load full SOAP envelope XML
-        InputStream xmlStream = getClass().getClassLoader()
-                .getResourceAsStream("static-request/static-request.xml");
-        assertNotNull(xmlStream, "static-request.xml not found in classpath");
+        // Load SOAP XML from file
+        InputStream xml = getClass().getClassLoader().getResourceAsStream("static-request/static-request.xml");
+        assertNotNull(xml);
 
-        // Step 2: Parse with SAAJ
-        MessageFactory factory = MessageFactory.newInstance();
-        SOAPMessage soapMessage = factory.createMessage(null, xmlStream);
-
-        // Step 3: Extract payload (validateArrangementForPayment) from body
+        // Parse into SOAPMessage
+        SOAPMessage soapMessage = MessageFactory.newInstance().createMessage(null, xml);
         SOAPBody body = soapMessage.getSOAPBody();
-        assertNotNull(body.getFirstChild(), "SOAP body is empty");
 
-        // Step 4: JAXB unmarshal from payload node
+        // Extract the target request node
+        Node payloadNode = body.getElementsByTagNameNS("*", "validateArrangementForPayment").item(0);
+        assertNotNull(payloadNode);
+
+        // Unmarshal payload to Java object
         JAXBContext jaxbContext = JAXBContext.newInstance(ValidateArrangementForPaymentRequest.class);
         Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
-
         JAXBElement<ValidateArrangementForPaymentRequest> jaxbElement =
-                unmarshaller.unmarshal(body.getFirstChild(), ValidateArrangementForPaymentRequest.class);
+                unmarshaller.unmarshal(payloadNode, ValidateArrangementForPaymentRequest.class);
+
         ValidateArrangementForPaymentRequest request = jaxbElement.getValue();
+        assertNotNull(request);
 
-        // Step 5: Prepare a mock WebServiceMessage for the response
-        SOAPMessage responseSoap = factory.createMessage();
-        WebServiceMessage responseMessage = new SaajSoapMessage(responseSoap);
+        // Prepare a test response message
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        WebServiceMessage message = new SaajSoapMessage(MessageFactory.newInstance().createMessage());
+        ((SaajSoapMessage) message).setSoapAction("dummy");
+        
+        // Act
+        accountValidationService.validateSchema(request); // No exception expected
+        accountValidationService.validateBusinessRules(request, message);
 
-        // Step 6: Run schema validation
-        assertDoesNotThrow(() -> accountValidationService.validateSchema(request));
+        // Verify modified SOAP output
+        message.writeTo(outputStream);
+        byte[] modifiedXmlBytes = outputStream.toByteArray();
 
-        // Step 7: Apply business logic (modifies SOAP message)
-        assertDoesNotThrow(() -> accountValidationService.validateBusinessRules(request, responseMessage));
+        var doc = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(new ByteArrayInputStream(modifiedXmlBytes));
+        XPath xpath = XPathFactory.newInstance().newXPath();
 
-        // Optional: Print response
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        responseMessage.writeTo(out);
-        System.out.println("Modified SOAP Response:\n" + out);
+        String systemId = xpath.evaluate("//*[local-name()='systemId']", doc);
+        String txnId = xpath.evaluate("//*[local-name()='transactionId']", doc);
+
+        assertEquals("ModifiedESP", systemId);
+        assertEquals("ModifiedTxn123", txnId);
     }
 }
