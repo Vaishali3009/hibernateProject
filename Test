@@ -1,0 +1,84 @@
+package com.rbs.bdd.application.service;
+
+import com.rbs.bdd.generated.ValidateArrangementForPaymentRequest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.ws.WebServiceMessage;
+import org.springframework.ws.soap.saaj.SaajSoapMessage;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.Unmarshaller;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.soap.MessageFactory;
+import javax.xml.soap.SOAPMessage;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class AccountValidationServiceTest {
+
+    private AccountValidationService accountValidationService;
+
+    @BeforeEach
+    void setup() {
+        accountValidationService = new AccountValidationService();
+    }
+
+    @Test
+    void validateSchemaAndReturnBusinessModifiedResponse() throws Exception {
+        // Load XML from test resources
+        File file = new File("src/test/resources/static-request/static-request.xml");
+        assertTrue(file.exists(), "static-request.xml must exist");
+
+        // Parse and extract <validateArrangementForPayment>
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        dbf.setNamespaceAware(true);
+        DocumentBuilder db = dbf.newDocumentBuilder();
+        org.w3c.dom.Document doc = db.parse(file);
+
+        XPath xpath = XPathFactory.newInstance().newXPath();
+        org.w3c.dom.Node payloadNode = (org.w3c.dom.Node) xpath.evaluate(
+                "//*[local-name()='Body']/*[local-name()='validateArrangementForPayment']",
+                doc, XPathConstants.NODE
+        );
+
+        // Unmarshal to Java object
+        JAXBContext context = JAXBContext.newInstance(ValidateArrangementForPaymentRequest.class);
+        Unmarshaller unmarshaller = context.createUnmarshaller();
+        ValidateArrangementForPaymentRequest request = (ValidateArrangementForPaymentRequest)
+                unmarshaller.unmarshal(new DOMSource(payloadNode));
+
+        // Prepare mock SOAP response
+        MessageFactory messageFactory = MessageFactory.newInstance();
+        SOAPMessage soapMessage = messageFactory.createMessage();
+        WebServiceMessage responseMessage = new SaajSoapMessage(soapMessage);
+
+        // Act: run schema validation and business logic
+        accountValidationService.validateSchema(request);
+        accountValidationService.validateBusinessRules(request, responseMessage);
+
+        // Extract and inspect modified SOAP response
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        responseMessage.writeTo(output);
+
+        String soapXml = output.toString();
+        System.out.println("Modified SOAP Response:\n" + soapXml);
+
+        org.w3c.dom.Document responseDoc = db.parse(new ByteArrayInputStream(output.toByteArray()));
+
+        // Validate modified values
+        String systemId = xpath.evaluate("//*[local-name()='responseId']/*[local-name()='systemId']", responseDoc);
+        String transactionId = xpath.evaluate("//*[local-name()='responseId']/*[local-name()='transactionId']", responseDoc);
+
+        assertEquals("ModifiedESP", systemId);
+        assertEquals("ModifiedTxn123", transactionId);
+    }
+}
