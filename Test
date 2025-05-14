@@ -1,25 +1,28 @@
 package com.rbs.bdd.application.service;
 
+import com.rbs.bdd.application.exception.SchemaValidationException;
+import com.rbs.bdd.application.service.AccountValidationService;
 import com.rbs.bdd.generated.ValidateArrangementForPaymentRequest;
 import jakarta.xml.bind.JAXBContext;
 import jakarta.xml.bind.JAXBElement;
 import jakarta.xml.bind.Unmarshaller;
+import jakarta.xml.soap.MessageFactory;
+import jakarta.xml.soap.SOAPBody;
+import jakarta.xml.soap.SOAPMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ws.WebServiceMessage;
 import org.springframework.ws.soap.saaj.SaajSoapMessage;
-
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.soap.MessageFactory;
-import javax.xml.soap.SOAPBody;
-import javax.xml.soap.SOAPMessage;
-import javax.xml.transform.stream.StreamSource;
-import javax.xml.xpath.XPath;
-import javax.xml.xpath.XPathFactory;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
+import org.w3c.dom.Document;
 import org.w3c.dom.Node;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+import java.io.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,7 +62,7 @@ class AccountValidationServiceTest {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         WebServiceMessage message = new SaajSoapMessage(MessageFactory.newInstance().createMessage());
         ((SaajSoapMessage) message).setSoapAction("dummy");
-        
+
         // Act
         accountValidationService.validateSchema(request); // No exception expected
         accountValidationService.validateBusinessRules(request, message);
